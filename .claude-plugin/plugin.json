@@ -1,0 +1,70 @@
+{
+  "name": "ai-opensci",
+  "version": "0.1.0",
+  "description": "AI-powered scientific research pipeline — treat research as an engineerable workflow, use AI to accelerate every stage",
+  "author": {
+    "name": "Heath",
+    "url": "https://github.com/heath"
+  },
+  "license": "MIT",
+  "keywords": [
+    "scientific-research",
+    "ai",
+    "literature-review",
+    "data-analysis",
+    "paper-writing",
+    "mcp",
+    "agents",
+    "skills"
+  ],
+  "skills": ["./skills/"],
+  "agents": [
+    "./agents/literature-agent.md",
+    "./agents/analysis-agent.md",
+    "./agents/writing-agent.md",
+    "./agents/reviewer-agent.md"
+  ],
+  "mcpServers": {
+    "scholar-server": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/scholar-server/server.py"],
+      "env": {}
+    },
+    "arxiv-server": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/arxiv-server/server.py"],
+      "env": {}
+    },
+    "pdf-reader-server": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/pdf-reader-server/server.py"],
+      "env": {}
+    },
+    "crossref-server": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/crossref-server/server.py"],
+      "env": {}
+    },
+    "elicit-server": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/elicit-server/server.py"],
+      "env": {
+        "ELICIT_API_KEY": ""
+      }
+    },
+    "consensus-server": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/consensus-server/server.py"],
+      "env": {
+        "CONSENSUS_API_KEY": ""
+      }
+    },
+    "paper-store": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/paper-store/server.py"],
+      "env": {
+        "PAPER_STORE_DIR": "~/ai-opensci-papers"
+      }
+    }
+  }
+}

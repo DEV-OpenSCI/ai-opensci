@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ai-opensci",
+  "description": "AI-powered scientific research pipeline",
+  "owner": {
+    "name": "Heath"
+  },
+  "plugins": [
+    {
+      "name": "ai-opensci",
+      "source": "./",
+      "description": "Treat research as an engineerable pipeline, use AI to accelerate every stage",
+      "version": "0.1.0",
+      "author": {
+        "name": "Heath"
+      },
+      "license": "MIT",
+      "keywords": ["scientific-research", "ai", "mcp", "agents", "skills"],
+      "category": "workflow"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "ai-opensci",
+  "version": "0.1.0",
+  "description": "AI-powered scientific research pipeline plugin for Claude Code",
+  "keywords": [
+    "claude-code",
+    "scientific-research",
+    "ai",
+    "mcp",
+    "agents",
+    "skills"
+  ],
+  "author": {
+    "name": "Heath"
+  },
+  "license": "MIT",
+  "files": [
+    ".claude-plugin/",
+    "agents/",
+    "skills/",
+    "mcp-servers/",
+    "hooks/",
+    "scripts/"
+  ]
+}
