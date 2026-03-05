@@ -95,8 +95,13 @@ async def search_arxiv(
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(ARXIV_API, params=params)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(ARXIV_API, params=params)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"arXiv API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"arXiv API request failed: {e}"
 
     root = ET.fromstring(resp.text)
     entries = root.findall("atom:entry", NS)
@@ -134,8 +139,13 @@ async def get_arxiv_paper(arxiv_id: str) -> str:
 
     params = {"id_list": arxiv_id, "max_results": 1}
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(ARXIV_API, params=params)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(ARXIV_API, params=params)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"arXiv API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"arXiv API request failed: {e}"
 
     root = ET.fromstring(resp.text)
     entries = root.findall("atom:entry", NS)

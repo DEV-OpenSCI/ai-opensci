@@ -12,8 +12,15 @@ API_KEY = os.environ.get("CONSENSUS_API_KEY", "")
 
 def _headers():
     if not API_KEY:
-        raise RuntimeError("CONSENSUS_API_KEY environment variable is not set. Apply at https://consensus.app/home/api/")
+        return None
     return {"x-api-key": API_KEY}
+
+
+def _check_api_key() -> str | None:
+    """Return error message if API key is missing, None otherwise."""
+    if not API_KEY:
+        return "Error: CONSENSUS_API_KEY environment variable is not set. Apply at https://consensus.app/home/api/"
+    return None
 
 
 @mcp.tool()
@@ -37,6 +44,9 @@ async def search_papers(
         exclude_preprints: Only include peer-reviewed papers
         medical_mode: Filter to top medical journals (~8M docs)
     """
+    err = _check_api_key()
+    if err:
+        return err
     params: dict = {"query": query}
     if year_min:
         params["year_min"] = year_min
@@ -49,18 +59,20 @@ async def search_papers(
     if medical_mode:
         params["medical_mode"] = True
 
-    # study_types is a repeated query param
-    query_string = ""
-    if study_types:
-        for st in study_types:
-            query_string += f"&study_types={st}"
-
     async with httpx.AsyncClient(timeout=30) as client:
         url = f"{BASE_URL}/v1/quick_search"
-        resp = await client.get(url + ("?" + "&".join(f"{k}={v}" for k, v in params.items()) + query_string if query_string else ""),
-                                headers=_headers(),
-                                params=params if not query_string else None)
-        resp.raise_for_status()
+        # httpx supports repeated query params via list of tuples
+        param_list = list(params.items())
+        if study_types:
+            for st in study_types:
+                param_list.append(("study_types", st))
+        try:
+            resp = await client.get(url, headers=_headers(), params=param_list)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Consensus API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Consensus API request failed: {e}"
         data = resp.json()
 
     papers = data.get("results", [])

@@ -1,62 +1,118 @@
 ---
 name: research-pipeline
-description: 全流水线科研编排——从文献调研到论文写作，串联所有环节，统计每阶段用时。展示完整串行+并行混合编排。
+description: 全流水线科研编排——从文献调研到论文写作，4 Phase 串行+并行混合编排，10分钟内生成论文。
 argument-hint: <research question>
 user-invocable: true
 ---
 
-# Research Pipeline — 全流程科研流水线（10分钟内完成）
-
-你将执行一次完整的科研流水线，从文献调研到论文生成，**全程自动化、无需等待用户确认**，目标在 10 分钟内完成。
+# Research Pipeline — 全流程科研流水线
 
 ## 用户输入
 
 研究问题: `$ARGUMENTS`
 
-## 计时器使用
+---
 
-在每个阶段的开始和结束时，使用 Bash 调用计时器脚本：
+## 编排架构
+
+```
+┌───────────────────────────────────────────────────────┐
+│                  Orchestrator (本 Skill)               │  ← 任务拆解、路由、聚合
+├───────────┬───────────┬───────────┬───────────────────┤
+│ lit-agent │ wri-agent │ rev-agent │  analysis-agent   │  ← 执行层
+│   ×3并行  │   串行    │   ×3并行  │     并行          │
+├───────────┴───────────┴───────────┴───────────────────┤
+│              MCP Tool Layer                           │  ← scholar/elicit/consensus/paper-store
+├───────────────────────────────────────────────────────┤
+│              State Store (pipeline_state.json)        │  ← 共享状态持久化
+└───────────────────────────────────────────────────────┘
+```
+
+### 通信模式
+
+```
+Phase 1: Parallel Fan-out (3 源文献检索)
+Phase 2: Sequential → Parallel Fan-out (假设串行 → 实验+分析并行)
+Phase 3: Sequential (论文各节串行)
+Phase 4: Parallel Fan-out (3 角色审稿)
+```
+
+---
+
+## 终止条件（强制）
+
+```
+TIMEOUT_SECONDS   = 600       # 总超时 10 分钟
+MAX_RETRIES       = 2         # 单节点最大重试次数
+MAX_AGENT_CALLS   = 12        # 全链路 Agent 调用上限
+```
+
+超过任一条件时立即终止，输出已完成部分 + 错误报告。
+
+---
+
+## 状态管理
+
+### 状态存储
+
+所有中间状态写入 `output/pipeline_state.json`，禁止依赖 Agent 对话历史传递状态。
+
+```json
+{
+  "task_id": "pipeline-<timestamp>",
+  "status": "RUNNING",
+  "current_phase": "phase_1",
+  "phases": {
+    "phase_1": { "status": "SUCCESS", "checkpoint": { ... } },
+    "phase_2a": { "status": "PENDING" },
+    "phase_2b": { "status": "PENDING" },
+    "phase_3": { "status": "PENDING" },
+    "phase_4": { "status": "PENDING" }
+  },
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+### 状态机
+
+```
+PENDING   → 已创建，等待执行
+RUNNING   → 执行中
+SUCCESS   → 完成，输出可用
+FAILED    → 执行失败
+  ├─ RETRYABLE  → 可自动重试（MCP 超时、网络错误）
+  └─ FATAL      → 需人工介入（全部数据源不可用）
+SKIPPED   → 被降级跳过（非关键节点失败）
+```
+
+### Checkpoint
+
+每个 Phase 完成后，将以下内容写入 `pipeline_state.json`:
+- 当前阶段标识
+- 已完成节点的**输出摘要**（不是全量输出）
+- 下一步执行所需的最小上下文
+
+---
+
+## 计时器
 
 ```bash
-# 流水线开始
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start-pipeline
-
-# 每个阶段开始
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "阶段名称"
-
-# 每个阶段结束
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" end
-
-# 最终报告
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" report
 ```
 
-**重要**: 你必须在每个 Phase 开始前调用 `start`，结束后调用 `end`，最后调用 `report` 生成统计。
-
-## 核心优化策略
-
-1. **零等待**: 全程不暂停，自动流转到下一阶段
-2. **最大并行**: 独立阶段同时执行（文献三源并行、实验+分析并行、三角色并行审稿）
-3. **精简深度**: 文献搜索不追引用链，每源限 8 篇；论文直接生成完整草稿
-4. **轻量 Agent**: 非核心阶段用 sonnet 模型
-
-## 执行流程（4 Phase 架构）
-
-```
-Phase 1: 文献调研 (3源并行)
-    ↓ 自动流转
-Phase 2: 假设提炼 + 实验设计 + 数据分析方案 (假设串行 → 实验&分析并行)
-    ↓ 自动流转
-Phase 3: 论文写作 (完整 IMRaD 草稿)
-    ↓ 自动流转
-Phase 4: 快速审稿自检 (3角色并行)
-    ↓
-最终报告
-```
-
 ---
 
-### 启动流水线
+## 执行流程
+
+### 启动
+
+1. 生成 `task_id`: `pipeline-<YYYYMMDD-HHmmss>`
+2. 初始化 `output/pipeline_state.json`（全部 Phase 标记 PENDING）
+3. 启动计时器
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start-pipeline
@@ -64,161 +120,376 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start-pipeline
 
 ---
 
-### Phase 1: 文献调研（目标 ≤2.5 分钟）
+### Phase 1: 文献调研（Parallel Fan-out，目标 ≤2.5min）
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "1.文献调研"
 ```
 
-**并行启动 3 个 Agent**（全部设 `run_in_background: true`）:
+**输入准备（Orchestrator 执行，确定性逻辑）：**
 
-#### Agent A — Semantic Scholar
-```
-使用 scholar-server MCP:
-1. search_papers(query=关键词, limit=8)
-2. 返回论文列表（标题、年份、引用数、摘要）
-注意: 不追引用链，节省时间
-```
-
-#### Agent B — Elicit
-```
-使用 elicit-server MCP:
-1. search_papers(query=研究问题, max_results=8)
-注意: 不限制 quartile，加速返回
+将 `$ARGUMENTS` 转化为三种检索形式：
+```json
+{
+  "keywords": "提取的核心术语",
+  "research_question": "完整研究问题",
+  "answerable_query": "可回答的问句"
+}
 ```
 
-#### Agent C — Consensus
-```
-使用 consensus-server MCP:
-1. search_papers(query=问句, exclude_preprints=true)
-2. 提取每篇论文的 takeaway
+**并行启动 3 个 literature-agent**（`run_in_background: true`）：
+
+每个 Agent 接收结构化输入：
+
+```json
+// Agent A — Semantic Scholar
+{
+  "task_id": "<task_id>-lit-scholar",
+  "from": "orchestrator",
+  "to": "literature-agent",
+  "type": "execute",
+  "payload": {
+    "source": "semantic_scholar",
+    "query": "<keywords>",
+    "limit": 8
+  },
+  "metadata": { "timeout_seconds": 120, "retry_count": 0 }
+}
+
+// Agent B — Elicit
+{
+  "task_id": "<task_id>-lit-elicit",
+  "from": "orchestrator",
+  "to": "literature-agent",
+  "type": "execute",
+  "payload": {
+    "source": "elicit",
+    "query": "<research_question>",
+    "limit": 8
+  },
+  "metadata": { "timeout_seconds": 120, "retry_count": 0 }
+}
+
+// Agent C — Consensus
+{
+  "task_id": "<task_id>-lit-consensus",
+  "from": "orchestrator",
+  "to": "literature-agent",
+  "type": "execute",
+  "payload": {
+    "source": "consensus",
+    "query": "<answerable_query>",
+    "exclude_preprints": true
+  },
+  "metadata": { "timeout_seconds": 120, "retry_count": 0 }
+}
 ```
 
-**等待 3 个 Agent 全部返回后**:
-- 按标题/DOI 去重
-- 快速筛选 5-8 篇核心论文（优先多源命中、高引用、近年）
-- 识别 2-3 个 Research Gap
+**期望响应格式（每个 Agent）：**
+
+```json
+{
+  "task_id": "<task_id>-lit-xxx",
+  "status": "success",
+  "output": {
+    "papers": [
+      {
+        "title": "...", "authors": "...", "year": 2024,
+        "venue": "...", "citations": 156, "doi": "...",
+        "abstract_summary": "1-2 句摘要",
+        "type": "empirical|meta_analysis|review|frontier",
+        "takeaway": "支持/反对/中立（仅 Consensus）"
+      }
+    ],
+    "source": "semantic_scholar|elicit|consensus"
+  }
+}
+```
+
+**聚合（Orchestrator 执行，处理部分失败）：**
+
+1. 收集 3 个 Agent 返回结果
+2. **部分失败处理**：≥1 个源成功即继续，标记失败源为 SKIPPED
+3. 按 DOI/标题去重
+4. 筛选 5-8 篇核心论文（优先多源命中 → 高引用 → 近年）
+5. 识别 2-3 个 Research Gap
+6. 调用 `paper-store` 的 `save_papers_batch` 保存
+
+**Checkpoint 写入（信息蒸馏后）：**
+
+```json
+// 写入 pipeline_state.json 的 phase_1.checkpoint
+{
+  "core_papers": [
+    { "title": "...", "year": 2024, "citations": 156,
+      "type": "empirical", "contribution": "1句话",
+      "doi": "...", "sources": ["scholar", "elicit"] }
+  ],
+  "research_gaps": ["Gap 1", "Gap 2"],
+  "stance_summary": { "support": 3, "oppose": 1, "conditional": 2 },
+  "skipped_sources": []
+}
+```
+
+> **信息蒸馏**：只传 `core_papers` 摘要 + `research_gaps`，不传完整搜索结果。
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" end
 ```
 
-**不暂停，直接进入 Phase 2**
-
 ---
 
-### Phase 2: 假设 + 实验 + 分析（目标 ≤2.5 分钟）
+### Phase 2: 假设 + 实验 + 分析（Sequential → Parallel，目标 ≤2.5min）
 
-#### Step 2a: 假设提炼（串行，~30秒）
+#### Phase 2a: 假设提炼（Orchestrator 直接执行，无需 Agent）
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "2a.假设提炼"
 ```
 
-- 从 Research Gap 中**自动选择最具可行性的 1 个假设**
-- 明确 H0 和 H1
-- 不等待用户确认，直接推进
+**输入**：Phase 1 checkpoint 的 `research_gaps`
+
+**确定性逻辑**：从 research_gaps 中选择第一个 gap 作为假设方向（不依赖 LLM 路由）。
+
+**输出**：
+```json
+{
+  "hypothesis": {
+    "h0": "零假设描述",
+    "h1": "备择假设描述",
+    "iv": "自变量",
+    "dv": "因变量",
+    "direction": "two-tailed"
+  }
+}
+```
+
+**Checkpoint 写入**：将假设写入 `pipeline_state.json` 的 `phase_2a.checkpoint`。
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" end
 ```
 
-#### Step 2b: 实验设计 + 数据分析方案（并行）
+#### Phase 2b: 实验设计 + 数据分析方案（Parallel Fan-out）
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "2b.实验设计+分析方案"
 ```
 
-**同时启动 2 个 Agent**（`run_in_background: true`）:
+**同时启动 2 个 Agent**（`run_in_background: true`）：
 
-##### Agent D — 实验设计
-```
-根据假设生成精简实验方案:
-- 设计类型、自变量、因变量
-- 变量矩阵（简表）
-- 样本量估算（一句话）
-- 实验流程（5步以内）
+```json
+// Agent D — 实验设计（Orchestrator 直接生成，或使用 analysis-agent）
+{
+  "task_id": "<task_id>-exp-design",
+  "from": "orchestrator",
+  "to": "analysis-agent",
+  "type": "execute",
+  "payload": {
+    "task": "experiment_design",
+    "hypothesis": { "h0": "...", "h1": "...", "iv": "...", "dv": "..." }
+  },
+  "metadata": { "timeout_seconds": 90, "retry_count": 0 }
+}
+
+// Agent E — 数据分析方案
+{
+  "task_id": "<task_id>-analysis-plan",
+  "from": "orchestrator",
+  "to": "analysis-agent",
+  "type": "execute",
+  "payload": {
+    "task": "analysis_plan",
+    "hypothesis": { "h0": "...", "h1": "...", "iv": "...", "dv": "..." }
+  },
+  "metadata": { "timeout_seconds": 90, "retry_count": 0 }
+}
 ```
 
-##### Agent E — 数据分析方案
-```
-根据假设预设分析流程:
-- 推荐统计方法（1-2种）
-- 可视化方案（2-3种图表）
-- 效应量指标
+**期望响应格式：**
+
+```json
+// Agent D 响应
+{
+  "status": "success",
+  "output": {
+    "design_type": "RCT / 2x3 析因设计 / ...",
+    "variables": { "iv": "...", "dv": "...", "controls": ["..."] },
+    "sample_size": { "n_per_group": 30, "total": 60, "with_dropout": 75 },
+    "protocol_steps": ["步骤1", "步骤2", "..."]
+  }
+}
+
+// Agent E 响应
+{
+  "status": "success",
+  "output": {
+    "primary_test": "Independent t-test",
+    "effect_size_metric": "Cohen's d",
+    "visualizations": ["分布图", "箱线图", "对比图"],
+    "alpha": 0.05,
+    "power": 0.80
+  }
+}
 ```
 
-等待两个 Agent 返回后合并结果。
+**聚合 + 部分失败处理**：
+- 2 个都成功 → 合并结果
+- 1 个失败 → 用成功方的结果继续，标记失败方为 SKIPPED
+- 2 个都失败 → 标记 Phase 2b 为 FAILED，Phase 3 仍可用 Phase 1+2a 数据继续
+
+**Checkpoint 写入（蒸馏后）：**
+
+```json
+{
+  "experiment_design": { "design_type": "...", "sample_size": 60, "protocol_steps": ["..."] },
+  "analysis_plan": { "primary_test": "...", "effect_size_metric": "...", "visualizations": ["..."] },
+  "skipped": []
+}
+```
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" end
 ```
 
-**不暂停，直接进入 Phase 3**
-
 ---
 
-### Phase 3: 论文写作（目标 ≤3.5 分钟）
+### Phase 3: 论文写作（Sequential，目标 ≤3.5min）
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "3.论文写作"
 ```
 
-基于前面所有阶段的输出，**直接生成完整 IMRaD 论文草稿**（中文撰写）。
+**输入准备（信息蒸馏）：**
 
-串行生成各节（每节输出是下一节的上下文）:
+从 pipeline_state.json 提取 Phase 1-2 的 checkpoint，**不传完整搜索结果**，只传：
 
-1. **Title + Abstract** — 标题 + 150-250 字摘要
-2. **Introduction** — 研究背景、现有方法局限、研究动机与贡献（引用文献调研中的论文）
-3. **Methods** — 实验设计、数据采集方案、统计分析计划
-4. **Results** — 预期结果描述、图表占位说明（标记 `[TODO: 填入实验数据]`）
-5. **Discussion** — 结果解读、与已有工作对比、局限性、未来方向
-6. **References** — 基于文献调研的参考文献列表
+```json
+{
+  "task_id": "<task_id>-paper-write",
+  "from": "orchestrator",
+  "to": "writing-agent",
+  "type": "execute",
+  "payload": {
+    "research_question": "$ARGUMENTS",
+    "core_papers": [ /* Phase 1 的 5-8 篇论文摘要 */ ],
+    "research_gaps": ["Gap 1", "Gap 2"],
+    "hypothesis": { "h0": "...", "h1": "..." },
+    "experiment_design": { /* Phase 2b 蒸馏后的方案 */ },
+    "analysis_plan": { /* Phase 2b 蒸馏后的方案 */ }
+  },
+  "metadata": { "timeout_seconds": 210, "retry_count": 0 }
+}
+```
 
-**输出为单个 Markdown 文件**，保存到工作目录下 `output/paper_draft.md`。
+**writing-agent 串行生成各节**（Agent 内部串行，Orchestrator 视为单次调用）：
+
+1. Title + Abstract（150-250 字）
+2. Introduction（引用 core_papers）
+3. Methods（基于 experiment_design + analysis_plan）
+4. Results（标记 `[TODO: 填入实验数据]`）
+5. Discussion（引用 core_papers，讨论 research_gaps）
+6. References（基于 core_papers 的 DOI）
+
+**期望响应格式：**
+
+```json
+{
+  "status": "success",
+  "output": {
+    "file_path": "output/paper_draft.md",
+    "sections_completed": ["title", "abstract", "introduction", "methods", "results", "discussion", "references"],
+    "todo_count": 3,
+    "word_count": 3500
+  }
+}
+```
+
+**Checkpoint 写入：**
+```json
+{
+  "paper_file": "output/paper_draft.md",
+  "sections_completed": ["title", "abstract", "introduction", "methods", "results", "discussion", "references"],
+  "word_count": 3500
+}
+```
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" end
 ```
 
-**不暂停，直接进入 Phase 4**
-
 ---
 
-### Phase 4: 快速审稿自检（目标 ≤1.5 分钟）
+### Phase 4: 快速审稿自检（Parallel Fan-out，目标 ≤1.5min）
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "4.审稿自检"
 ```
 
-**并行启动 3 个 Agent**（`run_in_background: true`），对论文草稿进行快速审稿:
+**并行启动 3 个 reviewer-agent**（`run_in_background: true`）：
 
-#### Reviewer 1 — 方法论专家
-```
-重点: 实验设计合理性、统计方法、可复现性
-输出: 3-5 条核心意见，每条 1-2 句话
-```
-
-#### Reviewer 2 — 领域专家
-```
-重点: 新颖性、与前沿的关系、实际应用价值
-输出: 3-5 条核心意见，每条 1-2 句话
-```
-
-#### Reviewer 3 — 统计专家
-```
-重点: 数据分析正确性、效应量、统计功效
-输出: 3-5 条核心意见，每条 1-2 句话
+```json
+// 3 个 Agent 共用同一输入结构，仅 role 不同
+{
+  "task_id": "<task_id>-review-<role>",
+  "from": "orchestrator",
+  "to": "reviewer-agent",
+  "type": "execute",
+  "payload": {
+    "role": "methodologist | domain_expert | statistician",
+    "paper_file": "output/paper_draft.md",
+    "mode": "pipeline_quick"
+  },
+  "metadata": { "timeout_seconds": 90, "retry_count": 0 }
+}
 ```
 
-等待 3 个 Reviewer 返回后，汇总为:
-- **综合建议**: Accept / Minor Revision / Major Revision / Reject
-- **共识问题**（多人提到的）
-- **P0/P1/P2 改进项**
+**期望响应格式（每个 Reviewer）：**
+
+```json
+{
+  "status": "success",
+  "output": {
+    "role": "methodologist",
+    "strengths": ["优点1", "优点2"],
+    "weaknesses": [
+      { "severity": "major", "issue": "问题描述", "suggestion": "改进建议" }
+    ],
+    "recommendation": "minor_revision",
+    "confidence": 4
+  }
+}
+```
+
+**聚合（处理部分失败）：**
+
+1. ≥2 个 Reviewer 成功 → 正常汇总
+2. 仅 1 个成功 → 使用该结果，注明"仅单 Reviewer 意见"
+3. 全部失败 → 标记 Phase 4 为 SKIPPED，输出论文草稿但无审稿意见
+
+**Meta-Review 汇总逻辑（Orchestrator 执行）：**
+
+1. 提取共识问题（≥2 个 Reviewer 提到的同一类问题）
+2. 标记分歧点
+3. 按 severity 排序：P0（所有人提到的 major）→ P1（单人 major）→ P2（minor）
+4. 综合 recommendation 取最严格
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" end
 ```
+
+---
+
+### 完成判断标准（显式，不由 Agent 决定）
+
+流水线在以下**全部条件满足**时标记为 SUCCESS：
+
+- [ ] Phase 1 输出 ≥3 篇核心论文
+- [ ] Phase 2a 输出包含 h0 和 h1
+- [ ] Phase 3 输出文件 `output/paper_draft.md` 存在且 ≥1000 字
+- [ ] `pipeline_state.json` 中 Phase 1-3 状态均为 SUCCESS
+
+Phase 4（审稿）标记为 SKIPPED 时仍可判定整体 SUCCESS（审稿为非关键节点）。
 
 ---
 
@@ -230,18 +501,52 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" report
 
 ---
 
+## 错误处理（4 级策略）
+
+```
+Level 1 — 自动重试
+  触发：MCP 调用超时、单个数据源返回空
+  策略：重试 1 次（间隔 2s）
+  超限：升级为 Level 2
+
+Level 2 — 降级处理
+  触发：Phase 1 中 1-2 个数据源失败；Phase 4 中 1-2 个 Reviewer 失败
+  策略：跳过失败节点（SKIPPED），用成功节点的结果继续
+  记录：在 pipeline_state.json 的 skipped_sources 中记录
+
+Level 3 — 人工介入
+  触发：Phase 3（论文写作）失败；全部数据源不可用
+  策略：暂停流水线，输出已完成部分 + 错误信息，等待用户决定
+
+Level 4 — 全链路终止
+  触发：超过 TIMEOUT_SECONDS（600s）；Agent 调用次数超过 MAX_AGENT_CALLS（12）
+  策略：立即终止，输出已完成部分 + 用时报告
+```
+
+---
+
 ## 最终输出
 
-输出 3 部分内容:
+### 1. 交付物
 
-### 1. 流水线摘要
+| 文件 | 内容 |
+|------|------|
+| `output/paper_draft.md` | 完整 IMRaD 论文草稿 |
+| `output/pipeline_state.json` | 流水线状态 + 各阶段 checkpoint |
+
+### 2. 终端输出
+
 ```markdown
 # 科研流水线完成报告
 
-## 研究问题
-[用户输入的问题]
+## 状态: SUCCESS / PARTIAL / FAILED
+- Phase 1 文献调研: SUCCESS (5 篇核心论文, 1 源跳过)
+- Phase 2a 假设提炼: SUCCESS
+- Phase 2b 实验+分析: SUCCESS
+- Phase 3 论文写作: SUCCESS (3500 字)
+- Phase 4 审稿自检: SUCCESS (3/3 Reviewer)
 
-## 核心文献 (5-8 篇)
+## 核心文献
 | # | 论文 | 年份 | 引用 | 核心贡献 |
 |---|------|------|------|---------|
 
@@ -249,42 +554,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" report
 - H0: ...
 - H1: ...
 
-## 实验设计要点
-[精简方案]
-
-## 论文草稿
-已保存到 `output/paper_draft.md`
-```
-
-### 2. 审稿自检结果
-```markdown
-## 审稿建议: [Major/Minor Revision]
+## 审稿建议: [Minor Revision]
 ### 改进项
 - [ ] P0: ...
 - [ ] P1: ...
-- [ ] P2: ...
+
+## 论文草稿
+已保存到 `output/paper_draft.md`
+
+## 用时统计
+[timer.py report 输出]
 ```
-
-### 3. 用时统计
-```
-============================================================
-  PIPELINE TIMING REPORT
-============================================================
-
-  1. 1.文献调研           ████████████░░░░░░░░   2m 15s  (25%)
-  2. 2a.假设提炼          ███░░░░░░░░░░░░░░░░░     28s   (5%)
-  3. 2b.实验设计+分析方案  ██████████░░░░░░░░░░   1m 45s  (19%)
-  4. 3.论文写作           █████████████████░░░░   3m 10s  (35%)
-  5. 4.审稿自检           ████████░░░░░░░░░░░░░   1m 22s  (15%)
-
-  TOTAL                                          9m 00s  (100%)
-============================================================
-```
-
-## 演示要点
-
-- **10 分钟完成全流程**: 传统科研这些步骤可能需要数周，AI 流水线 10 分钟内完成
-- **4 Phase 架构**: 比原始 6 Stage 减少 33% 的阶段切换开销
-- **3 次并行编排**: Phase 1 三源搜索 + Phase 2b 实验&分析 + Phase 4 三角色审稿
-- **零等待自动流转**: 全程无需用户干预，一键到底
-- **完整交付物**: 文献报告 + 实验方案 + 论文草稿 + 审稿意见

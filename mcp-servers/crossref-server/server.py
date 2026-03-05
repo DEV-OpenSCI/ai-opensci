@@ -1,12 +1,14 @@
 """CrossRef MCP Server — DOI解析、期刊信息、引用计数"""
 
+import os
 from mcp.server.fastmcp import FastMCP
 import httpx
 
 mcp = FastMCP("crossref-server", instructions="Resolve DOIs and get journal/citation metadata via CrossRef")
 
 BASE_URL = "https://api.crossref.org"
-HEADERS = {"User-Agent": "ai-opensci/0.1 (mailto:research@example.com)"}
+_mailto = os.environ.get("CROSSREF_MAILTO", "")
+HEADERS = {"User-Agent": f"ai-opensci/0.1 (mailto:{_mailto})"} if _mailto else {"User-Agent": "ai-opensci/0.1"}
 
 
 @mcp.tool()
@@ -19,10 +21,15 @@ async def resolve_doi(doi: str) -> str:
     doi = doi.strip().removeprefix("https://doi.org/").removeprefix("http://doi.org/")
 
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
-        resp = await client.get(f"{BASE_URL}/works/{doi}")
-        if resp.status_code == 404:
-            return f"DOI not found: {doi}"
-        resp.raise_for_status()
+        try:
+            resp = await client.get(f"{BASE_URL}/works/{doi}")
+            if resp.status_code == 404:
+                return f"DOI not found: {doi}"
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"CrossRef API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"CrossRef API request failed: {e}"
         item = resp.json().get("message", {})
 
     title = " ".join(item.get("title", ["Untitled"]))
@@ -72,8 +79,13 @@ async def search_crossref(query: str, limit: int = 10, filter_type: str | None =
         params["filter"] = f"type:{filter_type}"
 
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
-        resp = await client.get(f"{BASE_URL}/works", params=params)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(f"{BASE_URL}/works", params=params)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"CrossRef API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"CrossRef API request failed: {e}"
         items = resp.json().get("message", {}).get("items", [])
 
     if not items:
@@ -109,10 +121,15 @@ async def get_journal_info(issn: str) -> str:
         issn: Journal ISSN (e.g. '0028-0836' for Nature)
     """
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
-        resp = await client.get(f"{BASE_URL}/journals/{issn}")
-        if resp.status_code == 404:
-            return f"Journal not found with ISSN: {issn}"
-        resp.raise_for_status()
+        try:
+            resp = await client.get(f"{BASE_URL}/journals/{issn}")
+            if resp.status_code == 404:
+                return f"Journal not found with ISSN: {issn}"
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"CrossRef API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"CrossRef API request failed: {e}"
         j = resp.json().get("message", {})
 
     title = j.get("title", "N/A")

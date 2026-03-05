@@ -26,8 +26,13 @@ async def search_papers(query: str, limit: int = 10, year_from: int | None = Non
         params["year"] = year_range
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(f"{BASE_URL}/paper/search", params=params)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(f"{BASE_URL}/paper/search", params=params)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Semantic Scholar API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Semantic Scholar API request failed: {e}"
         data = resp.json()
 
     papers = data.get("data", [])
@@ -58,8 +63,13 @@ async def get_paper_details(paper_id: str) -> str:
     """
     fields = f"{FIELDS},references,citations,tldr"
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(f"{BASE_URL}/paper/{paper_id}", params={"fields": fields})
-        resp.raise_for_status()
+        try:
+            resp = await client.get(f"{BASE_URL}/paper/{paper_id}", params={"fields": fields})
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Semantic Scholar API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Semantic Scholar API request failed: {e}"
         p = resp.json()
 
     authors = ", ".join(a.get("name", "") for a in (p.get("authors") or []))
@@ -88,11 +98,16 @@ async def get_citations(paper_id: str, limit: int = 20) -> str:
     """
     fields = "paperId,title,year,citationCount,authors,venue"
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{BASE_URL}/paper/{paper_id}/citations",
-            params={"fields": fields, "limit": min(limit, 100)},
-        )
-        resp.raise_for_status()
+        try:
+            resp = await client.get(
+                f"{BASE_URL}/paper/{paper_id}/citations",
+                params={"fields": fields, "limit": min(limit, 100)},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Semantic Scholar API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Semantic Scholar API request failed: {e}"
         data = resp.json()
 
     citations = data.get("data", [])
@@ -120,11 +135,16 @@ async def get_references(paper_id: str, limit: int = 20) -> str:
     """
     fields = "paperId,title,year,citationCount,authors,venue"
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{BASE_URL}/paper/{paper_id}/references",
-            params={"fields": fields, "limit": min(limit, 100)},
-        )
-        resp.raise_for_status()
+        try:
+            resp = await client.get(
+                f"{BASE_URL}/paper/{paper_id}/references",
+                params={"fields": fields, "limit": min(limit, 100)},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Semantic Scholar API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Semantic Scholar API request failed: {e}"
         data = resp.json()
 
     refs = data.get("data", [])
@@ -150,11 +170,16 @@ async def search_author(name: str) -> str:
         name: Author name to search
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{BASE_URL}/author/search",
-            params={"query": name, "fields": "authorId,name,hIndex,citationCount,paperCount", "limit": 5},
-        )
-        resp.raise_for_status()
+        try:
+            resp = await client.get(
+                f"{BASE_URL}/author/search",
+                params={"query": name, "fields": "authorId,name,hIndex,citationCount,paperCount", "limit": 5},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Semantic Scholar API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Semantic Scholar API request failed: {e}"
         data = resp.json()
 
     authors = data.get("data", [])

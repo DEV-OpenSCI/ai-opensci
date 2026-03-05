@@ -1,98 +1,221 @@
 ---
 name: paper-write
-description: 论文写作——输入研究成果或大纲，按 IMRaD 结构串行生成论文草稿。展示串行 Agent 编排模式。
+description: 论文写作——输入研究成果或大纲，按 IMRaD 结构串行生成论文草稿。
 argument-hint: <research topic or outline>
 user-invocable: true
 ---
 
-# Paper Write — 串行 Agent 论文写作流水线
-
-你将按照 IMRaD 结构，通过串行 Agent 编排生成论文草稿。
+# Paper Write — 串行论文写作
 
 ## 用户输入
 
 研究主题/大纲: `$ARGUMENTS`
 
-## 执行流程 (Serial Pipeline Pattern)
+---
 
-这个 skill 展示 **串行流水线** 模式：每个 agent 的输出作为下一个 agent 的输入。
+## 编排架构
 
-### Stage 1: 大纲生成 → writing-agent
+```
+┌───────────────────────────────────┐
+│     Orchestrator (本 Skill)       │
+│  Stage 1 → 2 → 3 → 4 → 5 → 6   │  ← Sequential Pipeline
+├───────────────────────────────────┤
+│     writing-agent (串行调用)       │
+│     analysis-agent (Stage 4 协作) │
+├───────────────────────────────────┤
+│     State Store (paper_state.json)│
+└───────────────────────────────────┘
+```
 
-首先生成论文整体大纲:
-- 确定论文标题
-- 列出各节的要点
-- 确定图表计划
-- 确认用户同意后继续
+## 终止条件
 
-### Stage 2: Introduction → writing-agent
+```
+TIMEOUT_SECONDS  = 300    # 总超时 5 分钟
+MAX_RETRIES      = 1      # 单节写作失败最大重试
+```
 
-基于大纲撰写引言:
-- 研究背景（广→窄）
-- 现有方法和局限
-- 研究动机和贡献
-- 论文组织结构
+---
 
-### Stage 3: Methods → writing-agent
+## 执行流程
 
-基于引言中提出的方法撰写方法部分:
-- 问题形式化
-- 方法描述
-- 算法/实验细节
-- 实现细节
+### Stage 1: 大纲生成
 
-### Stage 4: Results → writing-agent + analysis-agent
+**输入（结构化）：**
+```json
+{
+  "task_id": "paper-outline-<timestamp>",
+  "from": "orchestrator",
+  "to": "writing-agent",
+  "type": "execute",
+  "payload": {
+    "task": "generate_outline",
+    "research_topic": "$ARGUMENTS"
+  },
+  "metadata": { "timeout_seconds": 60 }
+}
+```
 
-如有数据:
-1. 调用 `analysis-agent` 生成统计结果
-2. 调用 `writing-agent` 将结果写成论文 Results 节
-3. 包含图表描述和统计报告
+**期望响应：**
+```json
+{
+  "status": "success",
+  "output": {
+    "title": "论文标题",
+    "sections": [
+      { "name": "introduction", "key_points": ["要点1", "要点2"] },
+      { "name": "methods", "key_points": ["..."] },
+      { "name": "results", "key_points": ["..."] },
+      { "name": "discussion", "key_points": ["..."] }
+    ],
+    "figure_plan": ["图1描述", "图2描述"]
+  }
+}
+```
 
-### Stage 5: Discussion → writing-agent
+**Checkpoint 写入**：保存大纲到 `output/paper_state.json`。
 
-基于前面所有内容:
-- 结果解读
-- 与已有工作对比
-- 局限性分析
-- 未来工作方向
+**暂停**：展示大纲，等待用户确认后继续。
 
-### Stage 6: Abstract → writing-agent
+### Stage 2-5: 逐节写作（Serial Pipeline）
 
-最后写摘要（因为需要全文信息）:
-- 150-250 词
-- 覆盖背景、方法、关键结果、结论
+每节按顺序生成。**信息蒸馏**：每个 Stage 只传入大纲 + 前一节的**摘要**（不传全文）。
+
+**Stage 输入模板：**
+```json
+{
+  "task_id": "paper-<section>-<timestamp>",
+  "from": "orchestrator",
+  "to": "writing-agent",
+  "type": "execute",
+  "payload": {
+    "task": "write_section",
+    "section": "introduction | methods | results | discussion",
+    "outline": { /* Stage 1 的大纲 */ },
+    "previous_section_summary": "前一节的 3 句话摘要",
+    "references": [ /* 如有文献列表 */ ]
+  },
+  "metadata": { "timeout_seconds": 60 }
+}
+```
+
+**Stage 4 (Results) 特殊处理：**
+
+如有数据文件，先调用 analysis-agent：
+
+```json
+{
+  "task_id": "paper-analysis-<timestamp>",
+  "from": "orchestrator",
+  "to": "analysis-agent",
+  "type": "execute",
+  "payload": {
+    "task": "generate_results",
+    "data_file": "<路径>",
+    "hypothesis": { "h0": "...", "h1": "..." }
+  }
+}
+```
+
+将 analysis-agent 的统计结果（蒸馏后）传给 writing-agent 撰写 Results 节。
+
+无数据时：Results 节标记 `[TODO: 填入实验数据]`。
+
+**每节期望响应：**
+```json
+{
+  "status": "success",
+  "output": {
+    "section": "introduction",
+    "content": "该节完整 Markdown 内容",
+    "summary": "3 句话摘要（供下一节使用）",
+    "word_count": 600
+  }
+}
+```
+
+**每节完成后 Checkpoint 写入**：追加到 `paper_state.json`。
+
+### Stage 6: Abstract（依赖全文信息）
+
+```json
+{
+  "payload": {
+    "task": "write_abstract",
+    "all_sections_summary": {
+      "introduction": "3 句话摘要",
+      "methods": "3 句话摘要",
+      "results": "3 句话摘要",
+      "discussion": "3 句话摘要"
+    }
+  }
+}
+```
+
+> **信息蒸馏**：传入各节摘要，不传全文。
+
+### 组装输出
+
+Orchestrator 将各节内容组装为完整论文，保存到 `output/paper_draft.md`。
+
+---
+
+## 完成判断标准
+
+- [ ] `output/paper_draft.md` 文件存在
+- [ ] 包含全部 6 节（Title, Abstract, Introduction, Methods, Results, Discussion）
+- [ ] 包含 References 节
+- [ ] 总字数 ≥ 1500 字
+
+全部满足 → SUCCESS；缺少非关键节（References）→ SUCCESS + 标注；缺少关键节 → `needs_review`。
+
+---
+
+## 错误处理
+
+```
+Level 1 — 自动重试
+  触发：单节写作超时或返回空
+  策略：重试 1 次
+
+Level 2 — 降级
+  触发：Results 节的 analysis-agent 失败
+  策略：Results 节全部标记 [TODO]，继续后续节
+
+Level 3 — 人工介入
+  触发：Introduction 或 Methods 节失败（关键节）
+  策略：暂停，输出已完成部分，等待用户决定
+
+Level 4 — 全局终止
+  触发：超过 TIMEOUT_SECONDS / 连续 2 个关键节失败
+  策略：写入 paper_state.json status=FAILED，组装已完成节输出部分草稿
+```
+
+---
 
 ## 输出
 
-完整的论文草稿 (Markdown 格式)，注意论文内容要强制用"中文"写，如果md中用到图片要确保图片的路径正确保证图片正常显示:
+论文内容使用**中文**撰写，Markdown 格式，图片路径确保正确。
 
 ```markdown
 # [Title]
 
-## Abstract
+## 摘要
+[150-250 字]
+
+## 1. 引言
 ...
 
-## 1. Introduction
+## 2. 方法
 ...
 
-## 2. Methods
+## 3. 结果
 ...
 
-## 3. Results
+## 4. 讨论
 ...
 
-## 4. Discussion
-...
-
-## References
-[TODO: 添加完整参考文献]
+## 参考文献
+[1] Author et al. (Year). Title. Venue. DOI
 ```
 
-标记所有需要用户确认的内容为 `[TODO]` 或 `[VERIFY]`。
-
-## 演示要点
-
-这个 skill 演示了:
-- **串行 Agent 编排**: A → B → C 流水线，前一步输出是后一步输入
-- **多 Agent 协作**: writing-agent 和 analysis-agent 在 Results 阶段协作
-- **人机交互**: 大纲阶段等待用户确认后再继续
+标记需要确认的内容为 `[TODO]` 或 `[VERIFY]`。

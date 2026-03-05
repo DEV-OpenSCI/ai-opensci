@@ -18,6 +18,7 @@
     ".claude-plugin/",
     "agents/",
     "skills/",
+    "commands/",
     "mcp-servers/",
     "hooks/",
     "scripts/"

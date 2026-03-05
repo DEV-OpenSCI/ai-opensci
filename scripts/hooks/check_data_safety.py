@@ -6,6 +6,7 @@ for potentially sensitive data (patient IDs, emails, etc.).
 """
 
 import json
+import os
 import sys
 
 
@@ -29,14 +30,16 @@ def main():
     file_path = tool_input.get("file_path", "")
     content = tool_input.get("content", "")
 
-    # Check extension
-    ext = ""
+    warnings = []
+
+    # Warn when writing to sensitive file types
     for e in SENSITIVE_EXTENSIONS:
         if file_path.endswith(e):
-            ext = e
+            warnings.append(
+                f"⚠️  Writing to data file ({e}): {os.path.basename(file_path)}\n"
+                f"   Verify this file does not contain personally identifiable information."
+            )
             break
-
-    warnings = []
 
     # Check content for sensitive patterns
     if content:

@@ -12,8 +12,15 @@ API_KEY = os.environ.get("ELICIT_API_KEY", "")
 
 def _headers():
     if not API_KEY:
-        raise RuntimeError("ELICIT_API_KEY environment variable is not set. Get your key at https://elicit.com/settings")
+        return {"Content-Type": "application/json"}
     return {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+
+
+def _check_api_key() -> str | None:
+    """Return error message if API key is missing, None otherwise."""
+    if not API_KEY:
+        return "Error: ELICIT_API_KEY environment variable is not set. Get your key at https://elicit.com/settings"
+    return None
 
 
 @mcp.tool()
@@ -35,6 +42,9 @@ async def search_papers(
         type_tags: Filter by study type: "RCT", "Meta-Analysis", "Systematic Review", "Review", "Longitudinal"
         max_quartile: Journal quartile filter (1 = top 25% journals)
     """
+    err = _check_api_key()
+    if err:
+        return err
     body: dict = {"query": query, "maxResults": min(max_results, 100)}
     filters: dict = {}
     if min_year:
@@ -50,8 +60,13 @@ async def search_papers(
         body["filters"] = filters
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{BASE_URL}/api/v1/search", headers=_headers(), json=body)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(f"{BASE_URL}/api/v1/search", headers=_headers(), json=body)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Elicit API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Elicit API request failed: {e}"
         data = resp.json()
 
     papers = data.get("papers", [])
@@ -89,6 +104,9 @@ async def create_report(
         max_search_papers: How many papers to search (1-5000, default 50)
         max_extract_papers: How many papers to extract data from (1-5000, default 10)
     """
+    err = _check_api_key()
+    if err:
+        return err
     body = {
         "researchQuestion": research_question,
         "maxSearchPapers": max_search_papers,
@@ -96,8 +114,13 @@ async def create_report(
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{BASE_URL}/api/v1/reports", headers=_headers(), json=body)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(f"{BASE_URL}/api/v1/reports", headers=_headers(), json=body)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Elicit API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Elicit API request failed: {e}"
         data = resp.json()
 
     report_id = data.get("reportId", "")
@@ -119,13 +142,21 @@ async def get_report(report_id: str, include_body: bool = False) -> str:
         report_id: The report ID returned by create_report
         include_body: Whether to include the full report markdown body
     """
+    err = _check_api_key()
+    if err:
+        return err
     params = {}
     if include_body:
         params["include"] = "reportBody"
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(f"{BASE_URL}/api/v1/reports/{report_id}", headers=_headers(), params=params)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(f"{BASE_URL}/api/v1/reports/{report_id}", headers=_headers(), params=params)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Elicit API error: {e.response.status_code} — {e.response.text[:200]}"
+        except httpx.RequestError as e:
+            return f"Elicit API request failed: {e}"
         data = resp.json()
 
     status = data.get("status", "unknown")

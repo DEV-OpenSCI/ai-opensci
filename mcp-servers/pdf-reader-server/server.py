@@ -1,6 +1,7 @@
 """PDF Reader MCP Server — 本地PDF论文解析，提取结构化内容"""
 
 import os
+import re
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("pdf-reader-server", instructions="Parse local PDF papers and extract structured text")
@@ -28,18 +29,24 @@ async def read_pdf(file_path: str, max_pages: int = 0) -> str:
     if not os.path.exists(file_path):
         return f"Error: File not found: {file_path}"
 
-    doc = fitz.open(file_path)
-    total_pages = len(doc)
-    pages_to_read = min(max_pages, total_pages) if max_pages > 0 else total_pages
+    try:
+        doc = fitz.open(file_path)
+    except Exception as e:
+        return f"Error: Failed to open PDF: {e}"
 
-    text_parts = [f"**PDF: {os.path.basename(file_path)}** ({total_pages} pages)\n"]
-    for i in range(pages_to_read):
-        page = doc[i]
-        text = page.get_text()
-        if text.strip():
-            text_parts.append(f"\n--- Page {i + 1} ---\n{text}")
+    try:
+        total_pages = len(doc)
+        pages_to_read = min(max_pages, total_pages) if max_pages > 0 else total_pages
 
-    doc.close()
+        text_parts = [f"**PDF: {os.path.basename(file_path)}** ({total_pages} pages)\n"]
+        for i in range(pages_to_read):
+            page = doc[i]
+            text = page.get_text()
+            if text.strip():
+                text_parts.append(f"\n--- Page {i + 1} ---\n{text}")
+    finally:
+        doc.close()
+
     return "\n".join(text_parts)
 
 
@@ -55,13 +62,18 @@ async def extract_paper_structure(file_path: str) -> str:
     if not os.path.exists(file_path):
         return f"Error: File not found: {file_path}"
 
-    doc = fitz.open(file_path)
+    try:
+        doc = fitz.open(file_path)
+    except Exception as e:
+        return f"Error: Failed to open PDF: {e}"
 
-    # Extract full text
-    full_text = ""
-    for page in doc:
-        full_text += page.get_text() + "\n"
-    doc.close()
+    try:
+        # Extract full text
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text() + "\n"
+    finally:
+        doc.close()
 
     lines = full_text.split("\n")
 
@@ -98,7 +110,6 @@ async def extract_paper_structure(file_path: str) -> str:
     abstract = " ".join(abstract_lines)
 
     # Section headings (numbered like "1.", "2.", "1 Introduction", etc.)
-    import re
     section_pattern = re.compile(r"^(\d+\.?\s+[A-Z])")
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -136,19 +147,24 @@ async def extract_tables_and_figures(file_path: str) -> str:
     if not os.path.exists(file_path):
         return f"Error: File not found: {file_path}"
 
-    doc = fitz.open(file_path)
-    full_text = ""
-    for page in doc:
-        full_text += page.get_text() + "\n"
+    try:
+        doc = fitz.open(file_path)
+    except Exception as e:
+        return f"Error: Failed to open PDF: {e}"
 
-    # Count images
-    image_count = 0
-    for page in doc:
-        image_count += len(page.get_images())
-    doc.close()
+    try:
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text() + "\n"
+
+        # Count images
+        image_count = 0
+        for page in doc:
+            image_count += len(page.get_images())
+    finally:
+        doc.close()
 
     # Find figure and table captions
-    import re
     lines = full_text.split("\n")
     figures = []
     tables = []

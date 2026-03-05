@@ -112,7 +112,9 @@ async def save_paper(
                     with open(pdf_path, "wb") as f:
                         f.write(resp.content)
                     metadata["pdf_path"] = pdf_path
-        except Exception as e:
+        except httpx.HTTPStatusError as e:
+            metadata["pdf_download_error"] = f"HTTP {e.response.status_code}"
+        except httpx.RequestError as e:
             metadata["pdf_download_error"] = str(e)
 
     # If no direct PDF URL, try Semantic Scholar / arXiv PDF
@@ -132,7 +134,7 @@ async def save_paper(
                             f.write(resp.content)
                         metadata["pdf_path"] = pdf_path
                         break
-            except Exception:
+            except (httpx.HTTPStatusError, httpx.RequestError):
                 pass
 
     # Save metadata JSON
