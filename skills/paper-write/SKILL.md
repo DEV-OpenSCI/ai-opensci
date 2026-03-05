@@ -89,6 +89,7 @@ MAX_RETRIES      = 1      # 单节写作失败最大重试
   "type": "execute",
   "payload": {
     "task": "write_section",
+    "language": "zh-CN",
     "section": "introduction | methods | results | discussion",
     "outline": { /* Stage 1 的大纲 */ },
     "previous_section_summary": "前一节的 3 句话摘要",
@@ -162,8 +163,9 @@ Orchestrator 将各节内容组装为完整论文，保存到 `output/paper_draf
 ## 完成判断标准
 
 - [ ] `output/paper_draft.md` 文件存在
-- [ ] 包含全部 6 节（Title, Abstract, Introduction, Methods, Results, Discussion）
-- [ ] 包含 References 节
+- [ ] 包含全部 6 节（标题、摘要、引言、方法、结果、讨论）
+- [ ] 包含参考文献节
+- [ ] 正文为中文（参考文献条目除外）
 - [ ] 总字数 ≥ 1500 字
 
 全部满足 → SUCCESS；缺少非关键节（References）→ SUCCESS + 标注；缺少关键节 → `needs_review`。
@@ -197,25 +199,27 @@ Level 4 — 全局终止
 论文内容使用**中文**撰写，Markdown 格式，图片路径确保正确。
 
 ```markdown
-# [Title]
+# [中文标题]
 
 ## 摘要
-[150-250 字]
+[150-250 字，中文]
 
 ## 1. 引言
-...
+[中文撰写：研究背景 → 现有局限 → 动机 → 贡献]
 
 ## 2. 方法
-...
+[中文撰写：实验设计 → 数据采集 → 分析方法]
 
 ## 3. 结果
-...
+[中文撰写：统计结果 + [TODO] 占位]
 
 ## 4. 讨论
-...
+[中文撰写：结果解读 → 对比 → 局限 → 未来方向]
 
 ## 参考文献
-[1] Author et al. (Year). Title. Venue. DOI
+[1] Author et al. (Year). Title. Venue. DOI （英文保留原文）
 ```
+
+> **语言规则**：正文全部使用中文，章节标题使用中文，仅参考文献条目保留英文原文。
 
 标记需要确认的内容为 `[TODO]` 或 `[VERIFY]`。

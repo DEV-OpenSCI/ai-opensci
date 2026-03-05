@@ -42,3 +42,5 @@ Execute the research-pipeline skill from the ai-opensci plugin. Follow the instr
    - Phase 4: ≥1 reviewer succeeded (SKIPPABLE)
 
 7. **Zero Pauses**: Run full pipeline without user confirmation between phases
+
+8. **Language**: 论文正文必须使用中文撰写，章节标题用中文（引言、方法、结果、讨论），仅参考文献条目保留英文原文。Phase 3 的 Agent 输入必须包含 `"language": "zh-CN"`

@@ -24,9 +24,10 @@ Execute the paper-write skill from the ai-opensci plugin. Follow the instruction
    - Contains References section
    - Total ≥1500 words
 7. **User Confirmation**: Pause after outline (Stage 1) for user approval
+8. **Language**: 论文正文必须使用中文撰写。章节标题用中文（"引言"而非"Introduction"）。仅参考文献条目保留英文。每次 Agent 调用必须包含 `"language": "zh-CN"`
 
 Pipeline:
 1. Generate outline → pause for confirmation
-2. Write sections serially: Intro → Methods → Results → Discussion → Abstract
+2. Write sections serially: 引言 → 方法 → 结果 → 讨论 → 摘要
 3. Each section passes 3-sentence summary to next (distillation)
-4. Assemble into `output/paper_draft.md`
+4. Assemble into `output/paper_draft.md`（中文论文）

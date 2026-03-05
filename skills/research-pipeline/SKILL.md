@@ -372,6 +372,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "3.论文写作"
   "type": "execute",
   "payload": {
     "research_question": "$ARGUMENTS",
+    "language": "zh-CN",
     "core_papers": [ /* Phase 1 的 5-8 篇论文摘要 */ ],
     "research_gaps": ["Gap 1", "Gap 2"],
     "hypothesis": { "h0": "...", "h1": "..." },
@@ -384,12 +385,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/timer.py" start "3.论文写作"
 
 **writing-agent 串行生成各节**（Agent 内部串行，Orchestrator 视为单次调用）：
 
-1. Title + Abstract（150-250 字）
-2. Introduction（引用 core_papers）
-3. Methods（基于 experiment_design + analysis_plan）
-4. Results（标记 `[TODO: 填入实验数据]`）
-5. Discussion（引用 core_papers，讨论 research_gaps）
-6. References（基于 core_papers 的 DOI）
+> **⚠️ 语言要求：论文正文必须使用中文撰写。** 章节标题使用中文（如"引言"、"方法"、"结果"、"讨论"），参考文献条目保留英文原文。
+
+1. 标题 + 摘要（150-250 字，中文）
+2. 引言（引用 core_papers，中文撰写）
+3. 方法（基于 experiment_design + analysis_plan，中文撰写）
+4. 结果（标记 `[TODO: 填入实验数据]`，中文撰写）
+5. 讨论（引用 core_papers，讨论 research_gaps，中文撰写）
+6. 参考文献（基于 core_papers 的 DOI，英文条目）
 
 **期望响应格式：**
 
