@@ -44,7 +44,7 @@ SPSS/R 手动跑                     → 自动生成分析脚本 + 执行验证
 
 Claude Code 的插件生态有几个核心概念，我用科研场景一一对应：
 
-### 2.1 MCP Server —— "外部 API 的标准化接口"
+### 2.1 MCP Server —— "外部 API 的标准化接口" LLM上下文适配器(Model Context Protocol)
 
 MCP（Model Context Protocol）就是让 AI 能调用外部工具的协议。你可以把它理解为——给 AI 装了几个"API 适配器"。
 
@@ -134,7 +134,7 @@ Hooks 是事件驱动的自动检查。我们设了两个：
 
 ## 第三部分：两种 Agent 编排模式
 
-这是今天最重要的技术点——**Agent 编排**。
+技术点——**Agent 编排**。
 
 ### 模式一：并行 Fan-out + 聚合
 
